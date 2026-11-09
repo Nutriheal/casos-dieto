@@ -82,6 +82,9 @@ nav.tabs a{font-size:.8rem;background:#fff;border:1px solid var(--line);border-r
 <div><label>Peso (kg)</label><input id="f_peso" type="number" step="0.1"></div>
 <div><label>Talla (m)</label><input id="f_talla" type="number" step="0.01"></div>
 <div><label>Cintura (cm)</label><input id="f_cint" type="number" step="0.1"></div>
+<div><label>Peso usual (kg)</label><input id="f_pu" type="number" step="0.1"></div>
+<div><label>Tiempo del cambio de peso (meses)</label><input id="f_meses" type="number" step="0.5"></div>
+<div><label>Enfoque de valoración</label><select id="f_enf"><option value="auto">Automático (según el cuadro)</option><option value="obes">Sobrepeso / obesidad</option><option value="desn">Desnutrición / pérdida de peso</option></select></div>
 <div><label>Actividad física</label><select id="f_act"><option value="1.2">Sedentaria</option><option value="1.375" selected>Ligera</option><option value="1.55">Moderada</option><option value="1.725">Intensa</option></select></div>
 <div><label>Objetivo</label><select id="f_obj"><option value="auto">Automático (según IMC)</option><option value="bajar">Bajar de peso</option><option value="mantener">Mantener</option><option value="subir">Aumentar de peso</option></select></div>
 <div><label>Glucemia ayunas (mg/dl)</label><input id="f_glu" type="number" step="0.1"></div>
@@ -141,7 +144,13 @@ const PATOS=[
  ['gota','Hiperuricemia / gota',/\bgota\b|[aá]cido [uú]rico|hiperuricemia/],
  ['celiaq','Celiaquía (sin TACC)',/cel[ií]aca|celiaqu[ií]a|sin tacc/],
  ['lactosa','Intolerancia a la lactosa',/intolerancia a la lactosa|intolerante a la lactosa/],
- ['veg','Vegetariano / vegano',/vegetarian|vegan/]
+ ['veg','Vegetariano / vegano',/vegetarian|vegan/],
+ ['hep_ag','Hepatopatía aguda (hepatitis aguda)',/hepatitis aguda|hepatopat[ií]a aguda/],
+ ['hep_sint','↳ Aguda con síntomas GI (náuseas, vómitos)',/(?!)/],
+ ['hep_cr','Hepatopatía crónica / cirrosis compensada (MAFLD, hepatitis B/C…)',/cirrosis|hepatitis [bc] cr[oó]nica|hepatopat[ií]a cr[oó]nica|mafld|masld/],
+ ['hep_desc','Cirrosis descompensada o desnutrido',/cirrosis descompensada|hepatopat[ií]a (?:cr[oó]nica )?descompensada/],
+ ['hep_sae','↳ Ascitis / edemas (SAE)',/(?!)/],
+ ['hep_eh','↳ Encefalopatía hepática',/(?!)/]
 ];
 $('patos').innerHTML=PATOS.map(p=>`<label><input type="checkbox" id="p_${p[0]}"> ${p[1]}</label>`).join('');
 
@@ -150,10 +159,14 @@ function extract(t){
  const low=t.toLowerCase(); const d={}; let m;
  m=low.match(/edad[^0-9\n]{0,12}(\d{1,3})/)||low.match(/(\d{2,3})\s*a[ñn]os/); d.edad=m?+m[1]:'';
  d.sexo=/\b(mujer|femenin[oa]|se[ñn]ora|sra\.|sexo\s*[:=]?\s*f\b)/.test(low)?'F':/\b(hombre|masculin[oa]|var[oó]n|se[ñn]or\b|sr\.|sexo\s*[:=]?\s*m\b)/.test(low)?'M':'';
- m=low.match(/peso(?:\s+actual)?[^0-9\n]{0,25}(\d{2,3}(?:[.,]\d+)?)/)||low.match(/(\d{2,3}(?:[.,]\d+)?)\s*(?:kg|kilos)/); d.peso=m?num(m[1]):'';
+ let low2=low; d.pu='';d.meses='';
+ m=low.match(/peso\s+hace\s+(\d+)\s*(a[ñn]os?|meses?)[^0-9\n]{0,15}(\d{2,3}(?:[.,]\d+)?)/);
+ if(m){d.pu=num(m[3]);d.meses=m[2][0]==='a'?(+m[1])*12:+m[1];low2=low2.replace(m[0],' ')}
+ else{m=low.match(/(?:\bph\b|\bpu\b|peso\s+(?:habitual|usual))\s*[:=]?\s*(\d{2,3}(?:[.,]\d+)?)/);if(m){d.pu=num(m[1]);low2=low2.replace(m[0],' ')}}
+ m=low2.match(/\bpa\s*[:=]?\s*(\d{2,3}(?:[.,]\d+)?)\s*kg/)||low2.match(/peso(?:\s+actual)?[^0-9\n]{0,25}(\d{2,3}(?:[.,]\d+)?)/)||low2.match(/(\d{2,3}(?:[.,]\d+)?)\s*(?:kg|kilos)/); d.peso=m?num(m[1]):'';
  m=low.match(/(?:talla|estatura|altura)[^0-9\n]{0,25}(\d[.,]\d{1,2}|\d{3})\s*(cm|m)?/)||low.match(/(\d[.,]\d{2})\s*m\b/)||low.match(/(\d{3})\s*cm/);
  if(m){let v=num(m[1]); if(v>3)v=v/100; d.talla=v;} else d.talla='';
- m=low.match(/cintura[^0-9\n]{0,25}(\d{2,3}(?:[.,]\d+)?)/); d.cint=m?num(m[1]):'';
+ m=low.match(/cintura[^0-9\n]{0,25}(\d{2,3}(?:[.,]\d+)?)/)||low.match(/\bcc\s*[:=]\s*(\d{2,3}(?:[.,]\d+)?)/); d.cint=m?num(m[1]):'';
  const g=(re)=>{const x=low.match(re);return x?num(x[1]):''};
  d.glu=g(/(?:glucosa|glucemia|glicemia)[^0-9\n]{0,30}(\d{2,3}(?:[.,]\d+)?)/);
  d.hba=g(/(?:hba1c|hemoglobina glic\w+|hemoglobina gluc\w+)[^0-9\n]{0,20}(\d{1,2}(?:[.,]\d+)?)/);
@@ -171,14 +184,14 @@ function extract(t){
  return d;
 }
 function fillForm(d){
- const map={edad:'f_edad',sexo:'f_sexo',peso:'f_peso',talla:'f_talla',cint:'f_cint',act:'f_act',obj:'f_obj',glu:'f_glu',hba:'f_hba',col:'f_col',ldl:'f_ldl',hdl:'f_hdl',tg:'f_tg',cre:'f_cre',hb:'f_hb',pas:'f_pas',pad:'f_pad'};
+ const map={edad:'f_edad',sexo:'f_sexo',peso:'f_peso',talla:'f_talla',cint:'f_cint',pu:'f_pu',meses:'f_meses',act:'f_act',obj:'f_obj',glu:'f_glu',hba:'f_hba',col:'f_col',ldl:'f_ldl',hdl:'f_hdl',tg:'f_tg',cre:'f_cre',hb:'f_hb',pas:'f_pas',pad:'f_pad'};
  for(const k in map) $(map[k]).value=d[k];
  PATOS.forEach(p=>$('p_'+p[0]).checked=!!d.pat[p[0]]);
 }
 function readForm(){
  const v=id=>{const x=$(id).value;return x===''?null:num(x)};
  const d={edad:v('f_edad'),sexo:$('f_sexo').value,peso:v('f_peso'),talla:v('f_talla'),cint:v('f_cint'),act:num($('f_act').value),obj:$('f_obj').value,
- glu:v('f_glu'),hba:v('f_hba'),col:v('f_col'),ldl:v('f_ldl'),hdl:v('f_hdl'),tg:v('f_tg'),cre:v('f_cre'),hb:v('f_hb'),pas:v('f_pas'),pad:v('f_pad'),pat:{}};
+ glu:v('f_glu'),hba:v('f_hba'),col:v('f_col'),ldl:v('f_ldl'),hdl:v('f_hdl'),tg:v('f_tg'),cre:v('f_cre'),hb:v('f_hb'),pas:v('f_pas'),pad:v('f_pad'),pu:v('f_pu'),meses:v('f_meses'),enf:$('f_enf').value,pat:{}};
  PATOS.forEach(p=>d.pat[p[0]]=$('p_'+p[0]).checked);
  return d;
 }
@@ -256,6 +269,9 @@ const G={
 };
 const MEALS=['Desayuno','Colación AM','Almuerzo','Merienda','Cena'];
 const MEALPCT=[.25,.10,.30,.10,.25];
+const ORDER=['lacteos','carnes','verduras','frutas','cereales','leguminosas','grasas']; // orden de la lista diaria (cátedra)
+const NIGHT={cereales:.2,verduras:0,frutas:0,leguminosas:0,lacteos:.3,carnes:0,grasas:.1};
+const w6=k=>G[k].w.map(x=>x*(1-NIGHT[k])).concat(NIGHT[k]);
 function dist(total,w){
  const units=Math.round(total*2),raw=w.map(x=>x*units),fl=raw.map(Math.floor);
  let rem=units-fl.reduce((a,b)=>a+b,0);
@@ -281,10 +297,11 @@ function solve(d,text){
  r.clasImc=imc<18.5?'Bajo peso':imc<25?'Normopeso':imc<30?'Sobrepeso':imc<35?'Obesidad grado I':imc<40?'Obesidad grado II':'Obesidad grado III';
  r.pi=22*h*h; r.pMin=18.5*h*h; r.pMax=24.9*h*h;
  r.pctPI=w/r.pi*100;
+ r.pctPU=d.pu?w/d.pu*100:null; r.camb=d.pu?(d.pu-w)/d.pu*100:null; // % peso usual y % de cambio (+ = pérdida)
  r.pAj=imc>=30?r.pi+0.25*(w-r.pi):w;
  r.ger=10*r.pAj+6.25*h*100-5*d.edad+(d.sexo==='M'?5:-161);
  r.get=r.ger*d.act;
- r.obj=d.obj==='auto'?(imc>=25?'bajar':imc<18.5?'subir':'mantener'):d.obj;
+ r.obj=d.obj==='auto'?(imc>=25?'bajar':(imc<18.5||(r.camb!==null&&r.camb>=5))?'subir':'mantener'):d.obj;
  let v=r.obj==='bajar'?Math.max(r.get-500,r.ger,d.sexo==='M'?1500:1200):r.obj==='subir'?r.get+400:r.get;
  r.vct=Math.round(v/50)*50;
  // condiciones
@@ -296,6 +313,20 @@ function solve(d,text){
  ['erc','gastro','anemia','hipot','gota','celiaq','lactosa','veg'].forEach(k=>c[k]=!!d.pat[k]);
  c.obes=imc>=25;
  r.c=c;
+ c.hep_ag=!!d.pat.hep_ag; c.hep_sint=!!d.pat.hep_sint; c.hep_desc=!!d.pat.hep_desc;
+ c.hep_cr=!!d.pat.hep_cr||c.hep_desc; c.hep_sae=!!d.pat.hep_sae; c.hep_eh=!!d.pat.hep_eh; c.hep=c.hep_cr||c.hep_ag;
+ r.meals=c.hep_cr?MEALS.concat(['Colación nocturna']):MEALS; r.mpct=c.hep_cr?[.20,.10,.25,.10,.25,.10]:MEALPCT;
+ r.hep=null;
+ if(c.hep_cr){ // AASLD 2021: calorías según estado nutricional
+  let lo,hi,base,lab;
+  if(c.hep_desc||imc<18.5){lo=30;hi=35;base=r.pi;lab='Descompensada o desnutrido: 30–35 kcal/PI'}
+  else if(imc>=40){lo=20;hi=25;base=r.pAj;lab='Obesidad IMC > 40: 20–25 kcal/PIC'}
+  else if(imc>=30){lo=25;hi=35;base=r.pAj;lab='Obesidad IMC 30–40: 25–35 kcal/PIC'}
+  else{lo=25;hi=30;base=c.hep_sae?r.pi:w;lab='Compensada: 25–30 kcal/PI o PA'+(c.hep_sae?' (PI por edemas/ascitis)':'')}
+  const sel=(imc>=30&&!c.hep_desc&&r.obj==='bajar')?lo:(lo+hi)/2;
+  const fa=(!c.hep_desc&&imc>=18.5&&imc<30)?d.act:1; // FA solo en compensada ambulatoria
+  r.hep={lo,hi,base,lab,sel,fa}; r.get=base*sel*fa; r.vct=Math.round(r.get/50)*50;
+ }
  // macronutrientes
  let P=c.erc?null:(c.dm||c.hipertg||r.obj==='bajar'?20:18), CH=c.dm?48:(c.hipertg?50:55);
  let proGkg=null;
@@ -303,13 +334,17 @@ function solve(d,text){
  let GR=100-P-CH; 
  if(GR>35){CH+=GR-35;GR=35}
  if(GR<20){CH-=20-GR;GR=20}
+ if(c.hep_cr){ // proteínas 1,2–1,5 g/kg PI (EH: 1,2); HC 50–55 %; grasas 30–35 %
+  P=Math.round((c.hep_eh?1.2:1.4)*r.pi*4/r.vct*100); GR=32; CH=100-P-GR;
+  if(CH<50){GR=Math.max(30,GR-(50-CH));CH=100-P-GR}
+ }
  r.pct={cho:CH,pro:P,gra:GR};
  r.g={cho:r.vct*CH/100/4,pro:r.vct*P/100/4,gra:r.vct*GR/100/9};
- r.gkg=r.g.pro/r.pAj;
+ r.gkg=r.g.pro/(c.hep_cr?r.pi:r.pAj);
  r.fibra=Math.max(25,14*r.vct/1000);
  r.sat=c.dislip||c.dm?7:10;
  r.col=c.dislip?200:300;
- r.na=c.hta?1500:2300;
+ r.na=c.hep_sae?2000:(c.hta?1500:2300);
  r.agua=35*r.pAj/1000;
  // intercambios
  const pt={cereales:0,verduras:4,frutas:c.dm?2:3,leguminosas:1,lacteos:2,carnes:0,grasas:0};
@@ -325,7 +360,7 @@ function solve(d,text){
  r.pt=pt;
  r.tot={k:0,c:0,p:0,f:0};
  for(const k in pt){r.tot.k+=pt[k]*G[k].k;r.tot.c+=pt[k]*G[k].c;r.tot.p+=pt[k]*G[k].p;r.tot.f+=pt[k]*G[k].f}
- r.meal={};for(const k in pt)r.meal[k]=dist(pt[k],G[k].w);
+ r.meal={};for(const k in pt)r.meal[k]=dist(pt[k],c.hep_cr?w6(k):G[k].w);
  return r;
 }
 
@@ -338,6 +373,51 @@ function quotes(arr){return arr.length?arr.map(s=>`<div class="q">${esc(s)}</div
 
 /* ---------- Render local ---------- */
 function sec(id,n,t,body){return `<div class="sec" id="s${id}"><h2>${n} ${t}</h2>${body}</div>`}
+/* ---------- Valoración antropométrica según el cuadro ---------- */
+function perfil(r,d){
+ if(d.enf&&d.enf!=='auto')return d.enf;
+ if(r.imc<18.5||(r.camb!==null&&r.camb>=5)||r.c.hep_desc)return 'desn';
+ if(r.imc>=25)return 'obes';
+ return 'normal';
+}
+function antro(r,d){
+ const p=perfil(r,d),c=r.c,w=d.peso,ict=d.cint?d.cint/(d.talla*100):null;
+ const nom={obes:'Sobrepeso / obesidad',desn:'Desnutrición / pérdida de peso',normal:'Peso sin alteración'}[p];
+ const K=(v,l)=>`<div class="kpi"><b>${v}</b><span>${l}</span></div>`;
+ let kp=K(f1(d.talla)+' m','Talla')+K(f1(w)+' kg','Peso actual')+K(f1(r.imc)+' kg/m²','IMC')+K(f1(r.pi)+' kg','Peso ideal (IMC 22)')+K(f0(r.pctPI)+' %','% peso ideal');
+ const L=[];
+ L.push(`<b>IMC (OMS):</b> ${r.clasImc}. Rango de peso saludable: ${f1(r.pMin)}–${f1(r.pMax)} kg.`);
+ const cintura=()=>{
+  if(!d.cint)return;
+  const lim=d.sexo==='F'?[80,88]:[94,102];
+  const cl=d.cint>=lim[1]?['Riesgo cardiometabólico muy elevado','bad']:d.cint>=lim[0]?['Riesgo cardiometabólico elevado','warn']:['Sin riesgo','ok'];
+  L.push(`<b>Circunferencia de cintura:</b> ${f1(d.cint)} cm ${B(cl[0],cl[1])} <span class="note">(puntos de corte: ≥${lim[0]} / ≥${lim[1]} cm)</span>`);
+  L.push(`<b>Índice cintura/talla:</b> ${ict.toFixed(2).replace('.',',')} ${ict>=0.5?B('≥ 0,5: riesgo','bad'):B('< 0,5','ok')}`);
+ };
+ if(p==='obes'){
+  if(ict!==null)kp+=K(ict.toFixed(2).replace('.',','),'Índice cintura/talla');
+  L.push(`<b>Exceso de peso:</b> ${f1(w-r.pi)} kg sobre el peso ideal (${f0(r.pctPI)} % del PI).`);
+  cintura();
+  if(r.imc>=30)L.push(`<span class="note">Con obesidad se usa el <b>peso ajustado</b> (${f1(r.pAj)} kg = PI + 25 % del exceso) para calcular energía y proteínas.</span>`);
+ }else if(p==='desn'){
+  const pi=r.pctPI,ipi=pi>=90?['Normal','ok']:pi>=80?['Desnutrición leve','warn']:pi>=70?['Desnutrición moderada','bad']:['Desnutrición grave','bad'];
+  L.push(`<b>% de peso ideal:</b> ${f0(pi)} % ${B(ipi[0],ipi[1])} <span class="note">(90–110 normal · 80–90 leve · 70–79 moderada · &lt;70 grave)</span>`);
+  if(r.imc<18.5)L.push(`<b>IMC bajo peso:</b> ${r.imc<16?B('Grave','bad'):r.imc<17?B('Moderado','bad'):B('Leve','warn')} <span class="note">(17–18,4 leve · 16–16,9 moderado · &lt;16 grave)</span>`);
+  if(r.pctPU!==null){
+   const pu=r.pctPU,ipu=pu>=95?['Normal','ok']:pu>=85?['Desnutrición leve','warn']:pu>=75?['Desnutrición moderada','bad']:['Desnutrición grave','bad'];
+   kp+=K(f0(pu)+' %','% peso usual')+K((r.camb>=0?'−':'+')+f1(Math.abs(r.camb))+' %','% cambio de peso');
+   L.push(`<b>% de peso usual (PPU):</b> ${f0(pu)} % ${B(ipu[0],ipu[1])} <span class="note">(usual ${f1(d.pu)} kg · ≥95 normal · 85–95 leve · 75–84 moderada · &lt;75 grave)</span>`);
+   if(d.meses){
+    const thr=d.meses<=1?5:d.meses<=3?7.5:10,cm=r.camb;
+    L.push(`<b>% de cambio de peso:</b> ${cm>=0?'pérdida':'aumento'} de ${f1(Math.abs(cm))} % en ${f1(d.meses)} meses ${cm>thr?B('Pérdida grave','bad'):cm>=thr?B('Pérdida significativa','warn'):B('No significativa','ok')} <span class="note">(umbral: ${String(thr).replace('.',',')} % en ${d.meses<=1?'1 mes':d.meses<=3?'3 meses':'6 meses'})</span>`);
+   }else L.push(`<b>% de cambio de peso:</b> ${r.camb>=0?'pérdida':'aumento'} de ${f1(Math.abs(r.camb))} %. <span class="note">Indique en cuántos meses ocurrió para clasificar su gravedad.</span>`);
+  }else L.push(`<span class="note">Cargue el <b>peso usual</b> y el tiempo del cambio para calcular el % de peso usual y el % de cambio de peso.</span>`);
+  L.push(`<span class="note">Complementar con pliegue tricipital, circunferencia muscular del brazo y valoración global subjetiva.</span>`);
+ }else cintura();
+ if(c.hep_cr)L.push(`<b>Hepatopatía crónica:</b> priorizar la detección de desnutrición, sarcopenia y obesidad sarcopénica. Screening con RFH-NPT, método de elección VGS; indicadores útiles: pliegue tricipital, circunferencia muscular del brazo, IMC con peso seco (estimar el peso seco si hay edemas o ascitis), BIA y dinamometría.`);
+ if(c.hep_ag)L.push(`<b>Hepatopatía aguda:</b> la valoración antropométrica no es prioritaria si hay síntomas digestivos; priorizar la evaluación clínica y de síntomas.`);
+ return `<h3>1.2 Valoración antropométrica</h3><p class="note">Indicadores según el cuadro: <b>${nom}</b> (se puede cambiar en «Enfoque de valoración»).</p><div class="kpis">${kp}</div>`+L.map(x=>`<p>${x}</p>`).join('');
+}
 function renderLocal(r,text){
  const d=r.d,c=r.c,out=[];
  const low=text.toLowerCase();
@@ -352,21 +432,7 @@ function renderLocal(r,text){
  if(meds.length)clin+=`<p><b>Fármacos detectados:</b> ${meds.join(', ')}. <span class="note">Considerar interacciones fármaco-nutriente (p. ej., metformina y vitamina B12; IECA y potasio; estatinas y jugo de pomelo).</span></p>`;
  clin+=`<h3>Datos clínicos del caso</h3>`+quotes(pick(text,RE_CLIN).filter(s=>!/recordatorio|desayuno|almuerzo|merienda|cena/i.test(s)).slice(0,8));
  /* antropometría */
- let an=`<h3>1.2 Valoración antropométrica</h3><div class="kpis">
- <div class="kpi"><b>${f1(w=d.peso)} kg</b><span>Peso actual</span></div>
- <div class="kpi"><b>${f1(d.talla)} m</b><span>Talla</span></div>
- <div class="kpi"><b>${f1(r.imc)} kg/m²</b><span>IMC</span></div>
- <div class="kpi"><b>${f1(r.pi)} kg</b><span>Peso ideal (IMC 22)</span></div>
- <div class="kpi"><b>${f0(r.pctPI)} %</b><span>% del peso ideal</span></div></div>
- <p><b>Diagnóstico antropométrico (OMS):</b> ${r.clasImc}. Rango de peso saludable: ${f1(r.pMin)}–${f1(r.pMax)} kg.</p>`;
- if(r.imc>=30)an+=`<p class="note">Con obesidad se usa el <b>peso ajustado</b> (${f1(r.pAj)} kg = PI + 25 % del exceso) para calcular energía y proteínas.</p>`;
- if(d.cint){
-  const lim=d.sexo==='F'?[80,88]:[94,102];
-  const cl=d.cint>=lim[1]?['Riesgo cardiometabólico muy elevado','bad']:d.cint>=lim[0]?['Riesgo cardiometabólico elevado','warn']:['Sin riesgo','ok'];
-  an+=`<p><b>Circunferencia de cintura:</b> ${f1(d.cint)} cm ${B(cl[0],cl[1])} <span class="note">(puntos de corte: ≥${lim[0]} / ≥${lim[1]} cm)</span></p>`;
-  const ict=d.cint/(d.talla*100);
-  an+=`<p><b>Índice cintura/talla:</b> ${ict.toFixed(2).replace('.',',')} ${ict>=0.5?B('≥ 0,5: riesgo','bad'):B('< 0,5','ok')}</p>`;
- }
+ let an=antro(r,d);
  if(d.edad<18)an+=`<p>${B('Atención','warn')} El caso corresponde a un menor de 18 años: esta app usa criterios de adultos; use curvas OMS (IMC/edad) y requerimientos pediátricos.</p>`;
  /* bioquímica */
  let rows='';
@@ -403,6 +469,7 @@ function renderLocal(r,text){
  const et=etiol.length?etiol.join(', '):'hábitos alimentarios inadecuados y/o actividad física insuficiente (confirmar en la anamnesis)';
  if(r.imc>=25)pes.push([`<b>${r.clasImc}</b> (NC-3.3)`,et,`IMC ${f1(r.imc)} kg/m²${d.cint?`, cintura ${f1(d.cint)} cm`:''}`]);
  if(r.imc<18.5)pes.push(['<b>Bajo peso</b> (NC-3.1)','ingesta energética insuficiente (confirmar)',`IMC ${f1(r.imc)} kg/m²`]);
+ if(r.camb!==null&&r.camb>=5&&r.imc>=18.5)pes.push(['<b>Pérdida de peso involuntaria</b> (NC-3.2)','ingesta insuficiente o aumento de requerimientos (confirmar)',`pérdida del ${f1(r.camb)} % del peso usual${d.meses?' en '+f1(d.meses)+' meses':''}`]);
  if(c.dm)pes.push(['<b>Valores de laboratorio alterados relacionados con la nutrición (glucemia)</b> (NC-2.2)',/az[uú]car|gaseosa|facturas|dulce|harinas/.test(low)?'ingesta excesiva de carbohidratos simples y refinados (NI-5.8.2)':'patrón de ingesta de carbohidratos no controlado',[d.glu?`glucemia ${f1(d.glu)} mg/dl`:'',d.hba?`HbA1c ${f1(d.hba)} %`:''].filter(Boolean).join(', ')||'diagnóstico de diabetes/prediabetes']);
  if(c.dislip)pes.push(['<b>Ingesta excesiva de grasa saturada</b> (NI-5.6.2) / perfil lipídico alterado',/fritur|embutid|pizza|facturas|entera/.test(low)?'consumo elevado de fritos, embutidos y lácteos enteros':'selección de alimentos ricos en grasa saturada (confirmar)',[d.col?`CT ${f0(d.col)}`:'',d.ldl?`LDL ${f0(d.ldl)}`:'',d.hdl?`HDL ${f0(d.hdl)}`:'',d.tg?`TG ${f0(d.tg)}`:''].filter(Boolean).join(', ')]);
  if(c.hta)pes.push(['<b>Ingesta excesiva de sodio</b> (NI-5.10.2)',/sal|embutid|fiambre|snack|pizza/.test(low)?'agregado de sal y consumo de embutidos/ultraprocesados':'consumo habitual de alimentos con alto contenido de sodio (confirmar)',d.pas?`PA ${d.pas}/${d.pad} mmHg`:'diagnóstico de hipertensión arterial']);
@@ -424,12 +491,15 @@ function renderLocal(r,text){
  if(c.lactosa)reg.push('Bajo en lactosa');
  if(c.gota)reg.push('Bajo en purinas');
  if(c.veg)reg.push('Vegetariano (asegurar B12, hierro, zinc)');
+ if(c.hep_cr)reg.push('Adecuado a cirrosis '+(c.hep_desc?'descompensada':'compensada')+' · normo/hiperproteico · sin alcohol');
+ if(c.hep_ag)reg.push(c.hep_sint?'Cualitativo, adecuado a síntomas GI · sin alcohol':'Adecuado a hepatopatía aguda · sin alcohol');
  const ch=`<div class="tw"><table>
  <tr><th>Característica</th><th>Descripción</th></tr>
  <tr><td>Tipo de plan</td><td>${reg.join(' · ')}</td></tr>
- <tr><td>Fórmula</td><td>Mifflin-St Jeor × factor de actividad (${d.act}). Peso usado: ${f1(r.pAj)} kg${r.imc>=30?' (ajustado)':''}.</td></tr>
+ <tr><td>Fórmula</td><td>${r.hep?`AASLD 2021 — ${r.hep.lab}: ${f1(r.hep.sel)} kcal/kg × ${f1(r.hep.base)} kg${r.hep.fa>1?' × FA '+r.hep.fa:''}.`:`Mifflin-St Jeor × factor de actividad (${d.act}). Peso usado: ${f1(r.pAj)} kg${r.imc>=30?' (ajustado)':''}.`}</td></tr>
  <tr><td>Consistencia</td><td>Normal</td></tr>
- <tr><td>Fraccionamiento</td><td>5 comidas diarias (3 principales + 2 colaciones)</td></tr>
+ ${c.hep_cr?'<tr><td>Digestibilidad / Volumen / Residuos</td><td>Adecuar a la sintomatología GI (sin síntomas: todos los alimentos de un plan normal; evitar constipación) · Volumen &gt; 1,3 DC si hay apetito disminuido, &lt; 1 si se busca descenso de peso · Priorizar fibra</td></tr>':''}
+ <tr><td>Fraccionamiento</td><td>${c.hep_cr?'6 comidas diarias (3 principales + 2 colaciones + <b>colación nocturna</b> rica en hidratos, proteínas y fibra, para disminuir la gluconeogénesis y la pérdida de masa muscular)':'5 comidas diarias (3 principales + 2 colaciones)'}</td></tr>
  <tr><td>Vía</td><td>Oral</td></tr>
  <tr><td>Leyes de Escudero</td><td><b>Cantidad:</b> suficiente para el objetivo (${r.obj}) · <b>Calidad:</b> completo (todos los nutrientes y grupos) · <b>Armonía:</b> macronutrientes en proporción (${f0(r.pct.cho)}/${f0(r.pct.pro)}/${f0(r.pct.gra)} %) · <b>Adecuación:</b> adaptado a la edad, patologías y hábitos del paciente</td></tr>
  <tr><td>Objetivos</td><td>${[r.obj==='bajar'?'Reducción de peso gradual (0,5–1 kg/semana, ≥5–10 % del peso inicial)':'',c.dm?'Mejorar control glucémico (HbA1c ≤ 7 %)':'',c.hta?'Normalizar la presión arterial (reducción de sodio, patrón DASH)':'',c.dislip?'Mejorar el perfil lipídico (LDL, TG)':'','Aumentar la ingesta de fibra, verduras y frutas','Educación alimentaria y actividad física progresiva'].filter(Boolean).join('; ')}.</td></tr>
@@ -438,7 +508,7 @@ function renderLocal(r,text){
  /* 4 Prescripción */
  let pr=`<div class="kpis">
  <div class="kpi"><b>${f0(r.ger)} kcal</b><span>GER (Mifflin-St Jeor)</span></div>
- <div class="kpi"><b>${f0(r.get)} kcal</b><span>GET (× ${d.act})</span></div>
+ <div class="kpi"><b>${f0(r.get)} kcal</b><span>${r.hep?'Requerimiento AASLD':'GET (× '+d.act+')'}</span></div>
  <div class="kpi"><b>${f0(r.vct)} kcal</b><span>VCT prescripto</span></div>
  <div class="kpi"><b>${f1(r.agua)} L</b><span>Líquidos/día (35 ml/kg)</span></div></div>
  <div class="tw"><table><tr><th>Nutriente</th><th>%VCT</th><th>Gramos</th><th>Kcal</th><th>Observación</th></tr>
@@ -447,28 +517,30 @@ function renderLocal(r,text){
  <tr><td>Grasas</td><td>${f0(r.pct.gra)} %</td><td>${f0(r.g.gra)} g</td><td>${f0(r.g.gra*9)}</td><td>Saturadas &lt; ${r.sat} % VCT · colesterol &lt; ${r.col} mg · evitar trans</td></tr>
  <tr><td>Fibra</td><td>—</td><td>≥ ${f0(r.fibra)} g</td><td>—</td><td>14 g/1000 kcal; soluble e insoluble</td></tr>
  <tr><td>Sodio</td><td>—</td><td>&lt; ${r.na} mg</td><td>—</td><td>${c.hta?'≈ 3,8 g de sal total/día (patrón DASH)':'≈ 5,8 g de sal/día'}</td></tr></table></div>`;
- pr+=`<h3>Distribución por comidas</h3><div class="tw"><table><tr><th>Comida</th><th>% VCT</th><th>Kcal</th><th>CHO (g)</th><th>Prot (g)</th><th>Grasa (g)</th></tr>`+MEALS.map((m,i)=>`<tr><td>${m}</td><td>${f0(MEALPCT[i]*100)} %</td><td>${f0(r.vct*MEALPCT[i])}</td><td>${f0(r.g.cho*MEALPCT[i])}</td><td>${f0(r.g.pro*MEALPCT[i])}</td><td>${f0(r.g.gra*MEALPCT[i])}</td></tr>`).join('')+`</table></div>`;
+ pr+=`<h3>Distribución por comidas</h3><div class="tw"><table><tr><th>Comida</th><th>% VCT</th><th>Kcal</th><th>CHO (g)</th><th>Prot (g)</th><th>Grasa (g)</th></tr>`+r.meals.map((m,i)=>`<tr><td>${m}</td><td>${f0(r.mpct[i]*100)} %</td><td>${f0(r.vct*r.mpct[i])}</td><td>${f0(r.g.cho*r.mpct[i])}</td><td>${f0(r.g.pro*r.mpct[i])}</td><td>${f0(r.g.gra*r.mpct[i])}</td></tr>`).join('')+`</table></div>`;
+ if(c.hep_ag)pr=`<p>${B(c.hep_sint?'Hepatopatía aguda con síntomas GI: plan solo CUALITATIVO (sin cálculo de requerimientos)':'Hepatopatía aguda asintomática: requerimientos según evaluación nutricional y objetivos','warn')}</p>`+pr;
+ if(c.hep_cr)pr+=`<h3>Criterios para hepatopatía crónica (AASLD 2021)</h3><ul><li><b>Calorías:</b> ${r.hep.lab}; rango ${r.hep.lo}–${r.hep.hi} kcal/kg, se usó ${f1(r.hep.sel)} kcal/kg sobre ${f1(r.hep.base)} kg${r.hep.fa>1?' × FA '+r.hep.fa+' (ambulatorio)':''}.</li><li><b>Proteínas:</b> 1,2–1,5 g/kg PI (críticos 1,2–2); en EH mantener 1,2 g/kg, sin restringir. Incluir todas las fuentes.</li><li><b>Hidratos 50–55 % · Grasas 30–35 %:</b> predominio de complejos y fibra si no hay síntomas GI.</li><li><b>Sodio:</b> ${c.hep_sae?'restringir por ascitis/edemas (no menos de 50–90 mEq/día); liberar si compromete la ingesta':'sin restricción propia de la hepatopatía; priorizar la ingesta calórico-proteica'}.</li><li><b>Líquidos:</b> 1–1,5 L/día solo si hay hiponatremia dilucional.</li><li><b>Vitaminas y minerales:</b> evaluar déficits específicos; complejo B si es necesario.</li><li>Si la vía oral no cubre el requerimiento: suplementos orales, SNG o SNY (las várices esofágicas no contraindican la sonda).</li></ul>`;
  out.push(sec(4,'4.','Prescripción del plan de alimentación',pr));
  /* 5 Lista diaria */
  let li=`<h3>Porciones diarias por grupo (sistema de intercambios)</h3><div class="tw"><table><tr><th>Grupo</th><th>Porciones</th><th>kcal</th><th>CHO</th><th>Prot</th><th>Grasa</th></tr>`;
- for(const k in G){const n=r.pt[k];li+=`<tr><td>${G[k].n}</td><td><b>${fr(n)}</b></td><td>${f0(n*G[k].k)}</td><td>${f0(n*G[k].c)}</td><td>${f0(n*G[k].p)}</td><td>${f0(n*G[k].f)}</td></tr>`}
+ for(const k of ORDER){const n=r.pt[k];li+=`<tr><td>${G[k].n}</td><td><b>${fr(n)}</b></td><td>${f0(n*G[k].k)}</td><td>${f0(n*G[k].c)}</td><td>${f0(n*G[k].p)}</td><td>${f0(n*G[k].f)}</td></tr>`}
  li+=`<tr><th>Total aportado</th><th></th><th>${f0(r.tot.k)}</th><th>${f0(r.tot.c)}</th><th>${f0(r.tot.p)}</th><th>${f0(r.tot.f)}</th></tr>
  <tr><td>Adecuación vs. prescripción</td><td></td><td>${f0(r.tot.k/r.vct*100)} %</td><td>${f0(r.tot.c/r.g.cho*100)} %</td><td>${f0(r.tot.p/r.g.pro*100)} %</td><td>${f0(r.tot.f/r.g.gra*100)} %</td></tr></table></div>
  <p class="note">Adecuación aceptable: 90–110 %. Valores de intercambio basados en listas de equivalentes estándar; ajuste según las tablas de su cátedra si es necesario.</p>`;
- li+=`<h3>Distribución de las porciones por comida</h3><div class="tw"><table><tr><th>Grupo</th>${MEALS.map(m=>`<th>${m}</th>`).join('')}</tr>`;
- for(const k in G)li+=`<tr><td>${G[k].n}</td>${r.meal[k].map(n=>`<td>${n?fr(n):'—'}</td>`).join('')}</tr>`;
+ li+=`<h3>Distribución de las porciones por comida</h3><div class="tw"><table><tr><th>Grupo</th>${r.meals.map(m=>`<th>${m}</th>`).join('')}</tr>`;
+ for(const k of ORDER)li+=`<tr><td>${G[k].n}</td>${r.meal[k].map(n=>`<td>${n?fr(n):'—'}</td>`).join('')}</tr>`;
  li+=`</table></div><h3>Ejemplo de menú diario</h3><div class="tw"><table><tr><th>Comida</th><th>Preparación sugerida</th></tr>`;
  const fl={dm:c.dm,hta:c.hta,celiaq:c.celiaq,lactosa:c.lactosa,gota:c.gota};
- MEALS.forEach((m,i)=>{
+ r.meals.forEach((m,i)=>{
   const items=[];
-  for(const k in G){const n=r.meal[k][i];if(n){const fs=foodsFor(k,fl);items.push(`<b>${fr(n)}</b> porc. ${G[k].n.toLowerCase()} <span class="note">(ej.: ${fs[(i+Object.keys(G).indexOf(k))%fs.length]})</span>`)}}
+  for(const k of ORDER){const n=r.meal[k][i];if(n){const fs=foodsFor(k,fl);items.push(`<b>${fr(n)}</b> porc. ${G[k].n.toLowerCase()} <span class="note">(ej.: ${fs[(i+ORDER.indexOf(k))%fs.length]})</span>`)}}
   const beb=i===0||i===3?'Infusión (café/té/mate) sin azúcar · ':'';
   li+=`<tr><td><b>${m}</b></td><td>${beb}${items.join('<br>')}</td></tr>`});
  li+=`</table></div>`;
  out.push(sec(5,'5.','Lista diaria de alimentos',li));
  /* 6 Selección */
  let se=`<h3>Alimentos recomendados por grupo (equivalencia de 1 porción)</h3><div class="tw"><table><tr><th>Grupo</th><th>Alimentos y medidas caseras</th></tr>`;
- for(const k in G)se+=`<tr><td><b>${G[k].n}</b></td><td>${foodsFor(k,fl).map(esc).join('<br>')}</td></tr>`;
+ for(const k of ORDER)se+=`<tr><td><b>${G[k].n}</b></td><td>${foodsFor(k,fl).map(esc).join('<br>')}</td></tr>`;
  se+=`</table></div><h3>Alimentos a limitar o evitar</h3><ul>`;
  const ev=['Gaseosas, jugos industrializados y bebidas azucaradas','Frituras, snacks y productos de pastelería (grasas trans/saturadas)','Embutidos, fiambres y carnes grasas'];
  if(c.dm)ev.push('Azúcar, dulces, mermeladas, facturas y harinas refinadas; evitar jugos de fruta (preferir fruta entera)');
@@ -479,7 +551,7 @@ function renderLocal(r,text){
  if(c.gastro)ev.push('Café, picantes, cítricos, chocolate y comidas muy grasas');
  if(c.celiaq)ev.push('Trigo, avena, cebada y centeno (TACC) y sus derivados no certificados');
  if(c.lactosa)ev.push('Lácteos con lactosa (usar versiones deslactosadas)');
- if(/alcohol|cerveza|vino|fernet/.test(low))ev.push('Alcohol (limitar o suspender)');
+ if(c.hep){ev.push('ALCOHOL: lo único prohibido en toda hepatopatía');ev.push('Sales dietéticas y modificadas (fomentar especias y hierbas aromáticas)')}else if(/alcohol|cerveza|vino|fernet/.test(low))ev.push('Alcohol (limitar o suspender)');
  se+=ev.map(x=>`<li>${x}</li>`).join('')+`</ul><p class="note">Preferir cereales integrales, legumbres, verduras de todos los colores, pescado 2 veces por semana y agua como bebida principal.</p>`;
  out.push(sec(6,'6.','Selección de alimentos',se));
  /* 7 Preparación */
@@ -494,7 +566,7 @@ function renderLocal(r,text){
  <ul><li>Condimentar con ajo, cebolla, perejil, orégano, pimentón, limón y especias en lugar de sal.</li><li>Cocinar con poca cantidad de aceite (rociador o pincel) y usar utensilios antiadherentes.</li><li>Preferir cocciones cortas para conservar vitaminas y fibra.</li></ul>`;
  out.push(sec(7,'7.','Formas de preparación',pre));
  /* 8 Monitoreo */
- const mon=`<ul><li><b>Antropometría:</b> peso y cintura cada 2–4 semanas.</li>${c.dm?'<li><b>Glucemia</b> capilar según indicación médica; <b>HbA1c</b> cada 3 meses.</li>':''}${c.hta?'<li><b>Presión arterial</b> semanal en casa.</li>':''}${c.dislip?'<li><b>Perfil lipídico</b> a los 3 meses.</li>':''}<li><b>Adherencia:</b> registro alimentario de 3 días y reevaluación a las 4 semanas.</li><li><b>Actividad física:</b> iniciar con caminatas de 30 min, 5 veces por semana (si no hay contraindicación médica).</li><li>Derivar al médico ante valores fuera de rango o cambios de medicación.</li></ul>`;
+ const mon=`<ul><li><b>Antropometría:</b> peso y cintura cada 2–4 semanas.</li>${c.dm?'<li><b>Glucemia</b> capilar según indicación médica; <b>HbA1c</b> cada 3 meses.</li>':''}${c.hta?'<li><b>Presión arterial</b> semanal en casa.</li>':''}${c.dislip?'<li><b>Perfil lipídico</b> a los 3 meses.</li>':''}<li><b>Adherencia:</b> registro alimentario de 3 días y reevaluación a las 4 semanas.</li><li><b>Actividad física:</b> iniciar con caminatas de 30 min, 5 veces por semana (si no hay contraindicación médica).</li>${c.hep?'<li><b>Hepatopatía:</b> hepatograma y scores Child-Pugh / MELD / Fib-4 si hay laboratorio nuevo; edemas de MMII, ascitis y grado de EH; síntomas digestivos que comprometan la ingesta; constipación (ideal 2–3 deposiciones/día, evaluar lactulosa); apetito y necesidad de soporte nutricional; <b>no ingesta de alcohol</b>; si se busca bajar de peso, descenso cuidado para evitar pérdida de masa muscular, con ejercicio individualizado.</li>':''}<li>Derivar al médico ante valores fuera de rango o cambios de medicación.</li></ul>`;
  out.push(sec(8,'8.','Monitoreo y educación alimentaria',mon));
  return out.join('');
 }
